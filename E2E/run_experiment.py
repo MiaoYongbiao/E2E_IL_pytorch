@@ -9,7 +9,7 @@ from __future__ import print_function
 import argparse
 import logging
 
-import torch, os
+import torch
 import torch.utils.data as td
 
 import data_handler
@@ -18,19 +18,20 @@ import model
 import plotter as plt
 import trainer
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "6"
-
 logger = logging.getLogger('iCARL')
 
 parser = argparse.ArgumentParser(description='iCarl2.0')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+parser.add_argument('--batch-size', type=int, default=100, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+parser.add_argument('--lr', type=float, default=1, metavar='LR',
                     help='learning rate (default: 2.0). Note that lr is decayed by args.gamma parameter args.schedule ')
-# parser.add_argument('--schedule', type=int, nargs='+', default=[40, 50, 60],
-parser.add_argument('--schedule', type=int, nargs='+', default=[10, 20, 30, 40, 50, 60],
+# parser.add_argument('--schedule', type=int, nargs='+', default=[45, 59, 66],
+# parser.add_argument('--schedule', type=int, nargs='+', default=[40, 50, 55,60,65],
+parser.add_argument('--schedule', type=int, nargs='+', default=[20,40,60],
                     help='Decrease learning rate at these epochs.')
-parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1, 0.1, 100, 0.1, 0.1],
+# parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1, 0.1, 100, 0.1,0.1],
+# parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1, 0.1],
+parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1, 0.1],
                     help='LR is multiplied by gamma on schedule, number of gammas should be equal to schedule')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.9)')
@@ -52,7 +53,7 @@ parser.add_argument('--model-type', default="resnet32",
                     help='model type to be used. Example : resnet32, resnet20, test')
 parser.add_argument('--name', default="noname",
                     help='Name of the experiment')
-parser.add_argument('--outputDir', default="./",
+parser.add_argument('--outputDir', default="../",
                     help='Directory to store the results; a new folder "DDMMYYYY" will be created '
                          'in the specified directory to save the results.')
 parser.add_argument('--upsampling', action='store_true', default=False,
@@ -63,7 +64,7 @@ parser.add_argument('--unstructured-size', type=int, default=0,
                     help='Leftover parameter of an unreported experiment; leave it at 0')
 parser.add_argument('--finetune-step', type=int, default=40,
                     help='finetune-step')
-parser.add_argument('--alphas', type=float, nargs='+', default=[1.0],
+parser.add_argument('--alphas', type=float, nargs='+', default=[0.7],
                     help='Weight given to new classes vs old classes in the loss; high value of alpha will increase perfomance on new classes at the expense of older classes. Dynamic threshold moving makes the system more robust to changes in this parameter')
 parser.add_argument('--decay', type=float, default=0.0001, help='Weight decay (L2 penalty).')
 parser.add_argument('--step-size', type=int, default=10, help='How many classes to add in each increment')
@@ -205,20 +206,23 @@ for seed in args.seeds:
                 #     my_trainer.undate_next_fc(my_trainer.model, class_group//args.step_size)
                 epoch = 0
                 flag = False
+                acc = 0
+                # if class_group:
+                #     my_trainer.train_process(my_trainer.train_data_iterator,
+                #                              train_dataset_loader,
+                #                              args.batch_size, class_group, kwargs)
 
 
                 # Running epochs_class epochs
-                # preacc = 0
-                # accmax = 0
-
                 for epoch in range(0, args.epochs_class):
                     if class_group and not args.no_bl and epoch >= args.finetune_step and not flag:
                     # if class_group and not args.no_bl:
+                        my_trainer.tmp_model()
                         my_trainer.undate_dataloader(my_trainer.train_data_iterator,
                                                      train_dataset_loader,
                                                      args.batch_size, class_group, kwargs
                                                      )
-                        my_trainer.tmp_model()
+
                         flag = True
                     if class_group<10:
                         break
@@ -240,14 +244,11 @@ for seed in args.seeds:
                                                           my_trainer.gradient_threshold_unreported_experiment, False,
                                                           my_trainer.older_classes, args.step_size))
 
-                        # acc_max = max(acc_max, acc_s)
-                        # if acc_max > preacc:
-                        #     preacc = acc_max
-                        #     torch.save(my_trainer.model.state_dict(), 'save_model/cifar100/res32_{}.pkl'.format(class_group))
+                        # if not class_group:
+                        #     if t_classifier.evaluate(class_group, my_trainer.model, train_iterator) > acc:
+                        #         acc = t_classifier.evaluate(class_group, my_trainer.model, train_iterator)
+                        #         torch.save(my_trainer.model.state_dict(), 'save/task1_100_no_overfit_normalize.pkl')
 
-                # if class_group == 0:
-                #     torch.save(my_trainer.model.state_dict(), 'save/task1_10cls_random.pkl')
-                # Evaluate the learned classifier
                 img = None
 
                 logger.info("Test Classifier Final: %0.2f",
@@ -290,18 +291,18 @@ for seed in args.seeds:
                 nmc_ideal_cum.append(testY_ideal)
 
                 # Compute confusion matrices of all three cases (Learned classifier, iCaRL, and ideal NMC)
-                # tcMatrix = t_classifier.get_confusion_matrix(class_group,my_trainer.model, test_iterator, dataset.classes)
-                # tcMatrix_scaled = t_classifier.get_confusion_matrix(class_group,my_trainer.model, test_iterator, dataset.classes,
+                # tcMatrix = t_classifier.get_confusion_matrix(my_trainer.model, test_iterator, dataset.classes)
+                # tcMatrix_scaled = t_classifier.get_confusion_matrix(my_trainer.model, test_iterator, dataset.classes,
                 #                                                     my_trainer.dynamic_threshold, my_trainer.older_classes,
                 #                                                     args.step_size)
-                # tcMatrix_grad_scaled = t_classifier.get_confusion_matrix(class_group,my_trainer.model, test_iterator,
+                # tcMatrix_grad_scaled = t_classifier.get_confusion_matrix(my_trainer.model, test_iterator,
                 #                                                          dataset.classes,
                 #                                                          my_trainer.gradient_threshold_unreported_experiment,
                 #                                                          my_trainer.older_classes,
                 #                                                          args.step_size)
-                # nmcMatrix = nmc.get_confusion_matrix(class_group, my_trainer.model, test_iterator, dataset.classes)
-                # nmcMatrixIdeal = nmc_ideal.get_confusion_matrix(class_group,my_trainer.model, test_iterator, dataset.classes)
-                # tcMatrix_scaled_binning = t_classifier.get_confusion_matrix(class_group,my_trainer.model, test_iterator,
+                # nmcMatrix = nmc.get_confusion_matrix(my_trainer.model, test_iterator, dataset.classes)
+                # nmcMatrixIdeal = nmc_ideal.get_confusion_matrix(my_trainer.model, test_iterator, dataset.classes)
+                # tcMatrix_scaled_binning = t_classifier.get_confusion_matrix(my_trainer.model, test_iterator,
                 #                                                             dataset.classes,
                 #                                                             my_trainer.dynamic_threshold,
                 #                                                             my_trainer.older_classes,
@@ -321,7 +322,7 @@ for seed in args.seeds:
                 my_experiment.store_json()
 
                 # Finally, plotting the results;
-                # my_plotter = plt.Plotter()
+                my_plotter = plt.Plotter()
                 #
                 # # Plotting the confusion matrices
                 # my_plotter.plotMatrix(int(class_group / args.step_size) * args.epochs_class + epoch,
@@ -348,4 +349,3 @@ for seed in args.seeds:
                 #
                 # # Saving the line plot
                 # my_plotter.save_fig(my_experiment.path, dataset.classes + 1)
-
