@@ -16,14 +16,14 @@ from torch.autograd import Variable
 from tqdm import tqdm
 from torch.utils.data.sampler import WeightedRandomSampler
 
-import model
+# import model
 
 logger = logging.getLogger('iCARL')
 
 
 class GenericTrainer:
     '''
-    Base class for trainer; to implement a new training routine, inherit from this.
+    Base class for trainer; to implement a new training routine, inherit from this. 
     '''
 
     def __init__(self, trainDataIterator, testDataIterator, dataset, model, args, optimizer, ideal_iterator=None):
@@ -57,12 +57,8 @@ class GenericTrainer:
 class Trainer(GenericTrainer):
     def __init__(self, trainDataIterator, testDataIterator, dataset, model, args, optimizer, ideal_iterator=None):
         super().__init__(trainDataIterator, testDataIterator, dataset, model, args, optimizer, ideal_iterator)
-        self.dynamic_threshold = np.ones(self.dataset.classes // self.args.step_size, dtype=np.float64)
-        # self.dynamic_threshold = np.ones(self.dataset.classes, dtype=np.float64)
-        self.gradient_threshold_unreported_experiment = np.ones(self.dataset.classes // self.args.step_size,
-                                                                dtype=np.float64)
-        # self.gradient_threshold_unreported_experiment = np.ones(self.dataset.classes,
-        #                                                         dtype=np.float64)
+        self.dynamic_threshold = np.ones(self.dataset.classes, dtype=np.float64)
+        self.gradient_threshold_unreported_experiment = np.ones(self.dataset.classes, dtype=np.float64)
 
     def update_lr(self, epoch):
         for temp in range(0, len(self.args.schedule)):
@@ -76,9 +72,9 @@ class Trainer(GenericTrainer):
 
     def increment_classes(self, class_group):
         '''
-        Add classes starting from class_group to class_group + step_size
-        :param class_group:
-        :return: N/A. Only has side-affects
+        Add classes starting from class_group to class_group + step_size 
+        :param class_group: 
+        :return: N/A. Only has side-affects 
         '''
         for temp in range(class_group, class_group + self.args.step_size):
             pop_val = self.all_classes.pop()
@@ -97,10 +93,10 @@ class Trainer(GenericTrainer):
 
     def reset_dynamic_threshold(self):
         '''
-        Reset the threshold vector maintaining the scale factor.
-        Important to set this to zero before every increment.
-        setupTraining() also does this so not necessary to call both.
-        :return:
+        Reset the threshold vector maintaining the scale factor. 
+        Important to set this to zero before every increment. 
+        setupTraining() also does this so not necessary to call both. 
+        :return: 
         '''
         threshTemp = self.dynamic_threshold / np.max(self.dynamic_threshold)
         threshTemp = ['{0:.4f}'.format(i) for i in threshTemp]
@@ -112,12 +108,8 @@ class Trainer(GenericTrainer):
         logger.debug("Scale Factor" + ",".join(threshTemp))
         logger.debug("Scale GFactor" + ",".join(threshTemp2))
 
-        self.dynamic_threshold = np.ones(self.args.step_size + len(self.dynamic_threshold), dtype=np.float64)
-        # self.dynamic_threshold = np.ones(self.dataset.classes, dtype=np.float64)
-        self.gradient_threshold_unreported_experiment = np.ones(len(self.dynamic_threshold),
-                                                                dtype=np.float64)
-        # self.gradient_threshold_unreported_experiment = np.ones(self.dataset.classes,
-        #                                                         dtype=np.float64)
+        self.dynamic_threshold = np.ones(self.dataset.classes, dtype=np.float64)
+        self.gradient_threshold_unreported_experiment = np.ones(self.dataset.classes, dtype=np.float64)
 
     def setup_training(self):
         self.reset_dynamic_threshold()
@@ -138,7 +130,7 @@ class Trainer(GenericTrainer):
         self.models.append(self.model_fixed)
 
         if class_group==0:
-            self.model.load_state_dict(torch.load('save/task1_10cls_random.pkl'))
+            self.model.load_state_dict(torch.load('save/task1_100_no_overfit_normalize.pkl'))
             self.optimizer = torch.optim.SGD(self.model.parameters(), self.args.lr, momentum=self.args.momentum,
                                              weight_decay=self.args.decay, nesterov=True)
             self.model.eval()
@@ -150,7 +142,7 @@ class Trainer(GenericTrainer):
                 myModel.cuda()
             self.model = myModel
             self.optimizer = torch.optim.SGD(self.model.parameters(), self.args.lr, momentum=self.args.momentum,
-                                             weight_decay=self.args.decay, nesterov=False)
+                                             weight_decay=self.args.decay, nesterov=True)
             self.model.eval()
 
     def randomly_init_model(self):
@@ -208,23 +200,32 @@ class Trainer(GenericTrainer):
         if not herding:
             self.train_loader.limit_class(n, k)
         else:
-            self.train_loader.limit_class_and_sort(n, k, self.model_fixed)
-        # if n not in self.older_classes:
-        #     self.older_classes.append(n)
+            self.train_loader.limit_class_and_sort(n, k, self.model_fixed_tmp)
+
+
+    def train_process(self, train_data_iterator, train_dataset_loader, batch_size, class_group, kwargs):
+        weights = self.make_weights_for_balanced_classes(train_data_iterator.dataset.indices, class_group)
+        train_sampler = WeightedRandomSampler(weights,
+                                              num_samples=7000, replacement=True)
+        train_iterator = torch.utils.data.DataLoader(train_dataset_loader,
+                                                     batch_size=batch_size,
+                                                     sampler=train_sampler,
+                                                     shuffle=False, **kwargs)
+        self.train_data_iterator = train_iterator
 
     def undate_dataloader(self, train_data_iterator, train_dataset_loader, batch_size, class_group, kwargs):
+        # train_iterator = torch.utils.data.DataLoader(train_dataset_loader,
+        #                                              batch_size=batch_size,
+        #                                              shuffle=True, **kwargs)
         for val in self.left_over:
             self.limit_class_finetune(val, int(self.args.memory_budget / (len(self.left_over)-self.args.step_size)), not self.args.no_herding)
         # weights = self.make_weights_for_balanced_classes(train_data_iterator.dataset.indices, class_group)
         # train_sampler = WeightedRandomSampler(weights,
         #                                       num_samples=2000, replacement=True)
-        # train_iterator = torch.utils.data.DataLoader(train_dataset_loader,
-        #                                              batch_size=batch_size,
-        #                                              sampler=train_sampler,
-        #                                              shuffle=False, **kwargs)
         # self.train_data_iterator = train_iterator
 
     def tmp_model(self):
+        self.model.eval()
         self.model_fixed_tmp = copy.deepcopy(self.model)
         self.model_fixed_tmp.eval()
         for param in self.model_fixed_tmp.parameters():
@@ -263,11 +264,15 @@ class Trainer(GenericTrainer):
             target_normal_loss.unsqueeze_(1)
             y_onehot.scatter_(1, target_normal_loss, 1)
 
-            if not class_group:
-                output = self.model(Variable(data_normal_loss), class_group // self.args.step_size)
-                # loss = F.kl_div(output, Variable(y_onehot[:, :class_group + self.args.step_size]))
-                loss = F.nll_loss(output, Variable(target))
-                self.dynamic_threshold += np.sum(y_onehot[:, :self.args.step_size].cpu().numpy(), 0)
+            # output = self.model(Variable(data_normal_loss))
+            output = self.model(Variable(data), incremental_ind)
+            # output = self.model(Variable(data), incremental_ind, labels=True)
+            if epoch >= self.args.finetune_step:
+                self.dynamic_threshold += np.sum(y_onehot.cpu().numpy(), 0)
+            loss = F.kl_div(output, Variable(y_onehot))
+            # loss = F.nll_loss(output, Variable(target))
+            # loss = -(y_onehot*torch.log(output)).sum()/len(output)
+
 
             myT = self.args.T
 
@@ -275,133 +280,61 @@ class Trainer(GenericTrainer):
                 pass
 
             elif len(self.older_classes) > 0:
-
-                loss_lst = []
                 dis_lst = []
-                # pred3_lst = torch.zeros(len(target), 100, dtype=torch.float32).cuda()
-                pred3_lst = []
-                output3_lst = []
                 for task_ind in range(incremental_ind):
-                    # pred3 = self.models[task_ind+1](Variable(data), task_ind, T=myT, labels=True).data
-                    pred3 = self.model_fixed(Variable(data), task_ind, T=myT, labels=True).data
-                    # pred3_lst.append(pred3)
-                    # pred3_lst[:, task_ind*self.args.step_size:(task_ind+1)*self.args.step_size] += pred3
-                    # pred3 = self.model(Variable(data), task_ind, T=myT, labels=True).data
-                    output3 = self.model(Variable(data), task_ind, T=myT)
-                    # output3 = self.model(Variable(data), task_ind, T=myT, logit=True)
-                    # output3_lst.append(output3)
-                    # for cls_ind in range(self.args.step_size, class_group + self.args.step_size, self.args.step_size):
-                    # y = torch.zeros(len(target), cls_total).cuda()
-                    # pred3 = self.models[cls_ind//self.args.step_size](Variable(data), incremental_ind, T=myT, labels=True).data
-                    # pred3_g = pred3[:, :cls_total] * y.copy_(
-                    #     torch.exp(output3[:, :cls_total]).sum(dim=1).reshape(len(target), 1))
+                    if epoch < self.args.finetune_step:
+                        # Get softened labels of the model from a previous version of the model.
+                        pred2 = self.model_fixed(Variable(data), task_ind, T=myT, per_sfm=True).data
+                        # Softened output of the model
+                        output2 = self.model(Variable(data), task_ind, T=myT, per_sfm=True)
+                        output2 = torch.log(output2)
+                        self.dynamic_threshold[task_ind*10:(task_ind+1)*10] += (np.sum(pred2.cpu().numpy(), 0)) * (
+                                myT * myT) * self.args.alpha
 
-                    loss3 = F.kl_div(output3, Variable(pred3))
-                    # loss3 = F.kl_div(torch.log(output3), Variable(pred3))
-                    # loss3 = -(output3 * Variable(pred3)).sum()/len(target)
-                    # loss3 = F.kl_div(output3[:, cls_ind-self.args.step_size:cls_ind],
-                    #                  Variable(pred3[:,  cls_ind-self.args.step_size:cls_ind]))
-                    # loss3 = F.kl_div(output3[:, task_ind*self.args.step_size:(task_ind+1)*self.args.step_size],
-                    #                  Variable(pred3[:, task_ind*self.args.step_size:(task_ind+1)*self.args.step_size]))
-                    # dis_lst.append(loss3.data[0])
-                    # loss3.backward(retain_graph=True)
-                    # pred3_lst += pred3
-                    dis_lst.append(loss3)
+                    else:
+                        pred2 = self.model_fixed(Variable(data), task_ind, T=myT, per_sfm=True).data
+                        # Softened output of the model
+                        output2 = self.model(Variable(data), task_ind, T=myT, per_sfm=True)
+                        output2 = torch.log(output2)
+                        self.dynamic_threshold[task_ind*10:(task_ind+1)*10] += (np.sum(pred2.cpu().numpy(), 0)) * (
+                                myT * myT) * self.args.alpha
+                    loss2 = F.kl_div(output2, Variable(pred2))
+                    # loss2 = -(pred2 * torch.log(output2)).sum()/len(output2)
+                    dis_lst.append(loss2.data)
 
-                    loss3.backward(retain_graph=True)
+                    loss2.backward(retain_graph=True)
 
-                if epoch >= 40:
-                    pred3 = self.model_fixed_tmp(Variable(data), incremental_ind, T=myT, labels=True).data
-                    output3 = self.model(Variable(data), incremental_ind, T=myT)
-                    loss3 = F.kl_div(output3, Variable(pred3))
-                    dis_lst.append(loss3)
-                    loss3.backward(retain_graph=True)
-
-                # pred3 = torch.sum(torch.stack(pred3_lst), dim=1)
-                # for i in range(0, class_group + 1, self.args.step_size):
-                #     pred3_lst[:, i:i + self.args.step_size] = pred3_lst[:, i:i + self.args.step_size] / (
-                #                 (class_group - i) // self.args.step_size + 1)
-                pred3 = self.model_fixed(Variable(data), incremental_ind, T=myT, logit=True)
-                # pred3_lst = torch.cat(pred3_lst, dim=1)
-                # pred3_lst /= incremental_ind
-                # self.dynamic_threshold[:cls_total - self.args.step_size] += \
-                #     (np.sum(pred3_lst.data.cpu().numpy(), 0)) * (
-                #             myT * myT) * self.args.alpha
-                self.dynamic_threshold[:cls_total] += \
-                    (np.sum(F.softmax(pred3, dim=1).data.cpu().numpy(), 0)) * (
+                if epoch >= self.args.finetune_step:
+                    pred3 = self.model_fixed_tmp(Variable(data), incremental_ind, T=myT, per_sfm=True).data
+                    output3 = self.model(Variable(data), incremental_ind, T=myT, per_sfm=True)
+                    self.dynamic_threshold[task_ind * 10:(task_ind + 1) * 10] += (np.sum(pred2.cpu().numpy(), 0)) * (
                             myT * myT) * self.args.alpha
-
-
-                output_total = torch.zeros(len(target), 100, dtype=torch.float32).cuda()
-                # output_total = []
-                # for task_ind in range(incremental_ind + 1):
-                # if task_ind != class_group // self.args.step_size: continue
-                # previous_old = target < task_ind * self.args.step_size
-                # old_data_ind_t = target < (task_ind + 1) * self.args.step_size
-                # old_data_ind = old_data_ind_t - previous_old
-                # if sum(old_data_ind.data) == 0: continue
-                output_total = self.model(Variable(data), incremental_ind, logit=True)
-                # output_total.append(output)
-                # output_total = torch.cat(output_total, dim=1)
-                # output = self.model(Variable(data[old_data_ind]), task_ind, per_logit=True)
-                # output_total[old_data_ind, task_ind*self.args.step_size:(task_ind+1)*self.args.step_size] += output
-                # output_total = F.log_softmax(output_total, dim=1)
-                # output = self.model(Variable(data), incremental_ind)
-                loss = F.kl_div(F.log_softmax(output_total, dim=1), Variable(y_onehot[:, :cls_total]))
-                # loss = F.nll_loss(F.log_softmax(output_total, dim=1), Variable(target))
-                loss_lst.append(loss)
-                # if task_ind != class_group // self.args.step_size:
-                #     loss.backward(retain_graph=True)
-                # else:
-                #     loss.backward()
-                self.dynamic_threshold += np.sum(y_onehot[:,:cls_total].cpu().numpy(), 0)
+                    output3 = torch.log(output3)
+                    loss3 = F.kl_div(output3, Variable(pred3))
+                    # loss3 = -(pred3 * torch.log(output3)).sum()/len(output3)
+                    dis_lst.append(loss3.data)
+                    loss3.backward(retain_graph=True)
 
                 # Scale gradient by a factor of square of T. See Distilling Knowledge in Neural Networks by Hinton et.al. for details.
-                # if class_group:
-                #     loss3 = torch.sum(torch.stack(dis_lst))/incremental_ind
-                #     loss3.backward(retain_graph=True)
                 for param in self.model.parameters():
                     if param.grad is not None:
                         param.grad = param.grad * (myT * myT) * self.args.alpha
-                # for param in self.model.named_parameters():
-                #     if "fc" in param[0] and 'weight' in param[0] and int(
-                #             param[0][param[0].find(".") - 1]) > class_group // self.args.step_size - 1:
-                #         break
-                #     elif param[1].grad is not None:
-                #         param[1].grad = param[1].grad * (myT * myT) * self.args.alpha
-
-            # sigma = 0.3 / (1 + epoch) ** 0.55
-            # for param in self.model.named_parameters():
-            #     if 'weight' in param[0]:
-            #         param[1] += sigma*Variable(torch.randn(param[1].shape).cuda())
 
             if len(self.older_classes) == 0 or not self.args.no_nl:
-                # if not class_group or not self.args.no_nl:
-                # if class_group:
-                #     loss3 = torch.sum(torch.stack(dis_lst))/incremental_ind
-                #     loss3.backward(retain_graph=True)
-                loss = torch.sum(torch.stack(loss_lst))
                 loss.backward()
 
-            # sigma = 0.3 / ((1 + epoch) ** 0.55)
-            # for param in self.model.named_parameters():
-            #     if 'weight' in param[0] and 'conv' in param[0] or 'fc' in param[0] and param[1].grad is not None:
-            #         # param[1].grad += sigma*Variable(torch.randn(param[1].grad.shape).cuda())
-            #         param[1].grad += 1e-2 * torch.normal(mean=torch.zeros(param[1].shape),
-            #                                   std=(torch.ones(param[1].shape) * 0.3 / (1 + epoch) ** 0.55) ** 0.5).cuda()
+            sigma = 0.3 / ((1 + epoch) ** 0.55)
+            for param in self.model.named_parameters():
+                if 'weight' in param[0] and 'conv' in param[0] or 'fc' in param[0] and param[1].grad is not None:
+                # if param[1].grad is not None:
+                    # param[1].grad += sigma*Variable(torch.randn(param[1].grad.shape).cuda())
+                    param[1].grad += 2e-2 * torch.normal(mean=torch.zeros(param[1].shape),
+                                              std=(torch.ones(param[1].shape) * 0.3 / (1 + epoch) ** 0.55) ** 0.5).cuda()
 
             for param in self.model.named_parameters():
-                # if "fc{}.weight".format(class_group // self.args.step_size) in param[0]:
-                if "fc" in param[0] and 'weight' in param[0]:
-                    ind = int(param[0][param[0].find(".") - 1])
-                    if ind <= class_group // self.args.step_size:
-                        self.gradient_threshold_unreported_experiment[ind*self.args.step_size:(ind+1)*self.args.step_size] += np.sum(
-                            np.abs(param[1].grad.data.cpu().numpy()), 1)
-            self.gradient_threshold_unreported_experiment *= 0.99
-            # for param in self.model.named_parameters():
-            #     if "fc0.weight" in param[0]:
-            #         self.gradient_threshold_unreported_experiment *= 0.99
-            #         self.gradient_threshold_unreported_experiment += np.sum(np.abs(param[1].grad.data.cpu().numpy()), 1)
+                if "fc.weight" in param[0]:
+                    self.gradient_threshold_unreported_experiment *= 0.99
+                    self.gradient_threshold_unreported_experiment += np.sum(np.abs(param[1].grad.data.cpu().numpy()), 1)
 
             self.optimizer.step()
 
@@ -412,8 +345,8 @@ class Trainer(GenericTrainer):
             # print('loss is :{}\t distill_total is :{}\t distill_per is : {}'.format(loss.data, loss2.data, loss3.data))
         else:
             # print('loss is :{:.6f}\t'.format(loss.data))
-            print('loss is :{:.6f}\t loss3 is :{:.6f}\t'.format(loss.data[0], loss3.data))
-            # print('loss is :{:.6f}\tdistill_cur is :{:.6f}\tdistill_old is : {:.6f}'.format(loss.data, loss2.data, loss3.data))
+            print('loss is :{:.6f}\t loss3 is :{:.6f}\t'.format(loss.data[0], sum(dis_lst)))
+            # print('loss is :{:.6f}\tloss2 is :{:.6f}\t'.format(loss.data, loss2.data))
 
         if self.args.no_nl:
             self.dynamic_threshold[len(self.older_classes):len(self.dynamic_threshold)] = np.max(self.dynamic_threshold)
