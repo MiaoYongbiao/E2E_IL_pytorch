@@ -213,17 +213,12 @@ class Trainer(GenericTrainer):
                                                      shuffle=False, **kwargs)
         self.train_data_iterator = train_iterator
 
+    # Balanced fine-tuning: removal of samples from the new classes
     def undate_dataloader(self, train_data_iterator, train_dataset_loader, batch_size, class_group, kwargs):
-        # train_iterator = torch.utils.data.DataLoader(train_dataset_loader,
-        #                                              batch_size=batch_size,
-        #                                              shuffle=True, **kwargs)
         for val in self.left_over:
             self.limit_class_finetune(val, int(self.args.memory_budget / (len(self.left_over)-self.args.step_size)), not self.args.no_herding)
-        # weights = self.make_weights_for_balanced_classes(train_data_iterator.dataset.indices, class_group)
-        # train_sampler = WeightedRandomSampler(weights,
-        #                                       num_samples=2000, replacement=True)
-        # self.train_data_iterator = train_iterator
 
+    # Balanced fine-tuning: store the model before Balanced fine-tuning
     def tmp_model(self):
         self.model.eval()
         self.model_fixed_tmp = copy.deepcopy(self.model)
@@ -264,7 +259,7 @@ class Trainer(GenericTrainer):
             target_normal_loss.unsqueeze_(1)
             y_onehot.scatter_(1, target_normal_loss, 1)
 
-            # output = self.model(Variable(data_normal_loss))
+            #  multi-class cross-entropy loss
             output = self.model(Variable(data), incremental_ind)
             # output = self.model(Variable(data), incremental_ind, labels=True)
             if epoch >= self.args.finetune_step:
@@ -292,7 +287,7 @@ class Trainer(GenericTrainer):
                                 myT * myT) * self.args.alpha
 
                     else:
-                        pred2 = self.model_fixed(Variable(data), task_ind, T=myT, per_sfm=True).data
+                        pred2 = self.model_fixed_tmp(Variable(data), task_ind, T=myT, per_sfm=True).data
                         # Softened output of the model
                         output2 = self.model(Variable(data), task_ind, T=myT, per_sfm=True)
                         output2 = torch.log(output2)
@@ -323,6 +318,7 @@ class Trainer(GenericTrainer):
             if len(self.older_classes) == 0 or not self.args.no_nl:
                 loss.backward()
 
+            # add gradient noise
             sigma = 0.3 / ((1 + epoch) ** 0.55)
             for param in self.model.named_parameters():
                 if 'weight' in param[0] and 'conv' in param[0] or 'fc' in param[0] and param[1].grad is not None:
