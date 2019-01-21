@@ -199,7 +199,6 @@ for seed in args.seeds:
             # Loop that incrementally adds more and more classes
             for class_group in range(0, dataset.classes, args.step_size):
                 print("SEED:", seed, "MEMORY_BUDGET:", m, "CLASS_GROUP:", class_group)
-                # Add new classes to the train, train_nmc, and test iterator
                 my_trainer.increment_classes(class_group)
                 my_trainer.update_frozen_model(class_group)
                 # if class_group:
@@ -215,6 +214,8 @@ for seed in args.seeds:
 
                 # Running epochs_class epochs
                 for epoch in range(0, args.epochs_class):
+                 
+                    # balanced fine-tuning setting
                     if class_group and not args.no_bl and epoch >= args.finetune_step and not flag:
                     # if class_group and not args.no_bl:
                         my_trainer.tmp_model()
@@ -224,8 +225,7 @@ for seed in args.seeds:
                                                      )
 
                         flag = True
-                    if class_group<10:
-                        break
+
                     my_trainer.update_lr(epoch)
                     my_trainer.train(epoch, class_group)
                     # print(my_trainer.threshold)
