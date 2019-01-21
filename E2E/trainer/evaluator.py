@@ -11,7 +11,6 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchnet.meter import confusionmeter
-from sklearn.metrics import confusion_matrix
 
 logger = logging.getLogger('iCARL')
 
@@ -214,13 +213,7 @@ class softmax_evaluator():
             if self.cuda:
                 scale = scale.cuda()
         tempCounter = 0
-        target_total = 0
-        pred_total =0
         for data, y, target in loader:
-            output = []
-            tmp = torch.zeros(len(target), class_group+step_size).cuda()
-            # output = torch.zeros(len(target), class_group+step_size).cuda()
-            scale_g = torch.zeros(1, class_group+step_size).cuda()
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data, volatile=True), Variable(target)
@@ -229,33 +222,9 @@ class softmax_evaluator():
                 output = output * Variable(scale.float())
             elif scale is not None:
                 # print("Gets here, getting outputs")
-                # output = model(data, class_group // step_size, scale=Variable(scale[:, :class_group+step_size].float()))
-                # for i in range(0, class_group+step_size, step_size):
-                output = model(data, class_group // step_size, sfm=True, T=1)
-                # output.append(output_per)
-                # output[:, :i+step_size] += output_per
-                # output = torch.cat(output, dim=1)
-                # output = F.softmax(output, dim=1)
-                output *= scale[:, :len(output)].float()
-                # scale_g = scale / scale.sum()
-                # scale_g = F.softmax(scale_g / scale_g.max()[0], dim=1)
-                # output_last = model(data, class_group // step_size, scale=Variable(scale_g.float()))
-                # output_last /= tmp.copy_(output_last.sum(dim=1).reshape(len(output_last),1))
-                # output += output_last
-                # for i in range(0, class_group + 1, step_size):
-                #     output[:, i:i + step_size] = output[:, i:i + step_size] / ((class_group - i) // step_size + 1)
-                # output = output * Variable(scale.float())
+                output = model(data, class_group // step_size, scale=Variable(scale.float()))
             else:
-                # output = model(data, class_group // step_size)
-                # for i in range(0, class_group+step_size, step_size):
-                output = model(data, class_group // step_size, sfm=True, T=1)
-                # output = F.log_softmax(output, dim=1)
-                # output.append(output_per)
-                # output = torch.cat(output, dim=1)
-                #     output[:, :i+step_size] += output_per
-                # output += model(data, class_group // step_size, labels=True)
-                # for i in range(0, class_group + 1, step_size):
-                #     output[:, i:i + step_size] = output[:, i:i + step_size] / ((class_group - i) // step_size + 1)
+                output = model(data, class_group // step_size)
             if descriptor:
                 # To compare with FB paper
                 # output = output/Variable(scale.float())
@@ -285,9 +254,6 @@ class softmax_evaluator():
                 output = Variable(output)
             pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.data.view_as(pred)).cpu().sum()
-            target_total = torch.cat((target,target_total),dim=0) if type(target_total)!=int else target
-            pred_total = torch.cat((pred,pred_total),dim=0) if type(pred_total)!=int else pred
-        print(confusion_matrix(target_total, pred_total), end='\n\n')
 
         return 100. * correct.item() / len(loader.dataset)
 
